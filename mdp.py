@@ -25,7 +25,7 @@ def construir_adyacencias(N):
     # Conexiones válidas en el grafo es 5N^2 - 4N   
     return adyacencias
 
-def construir_recompensas(adyacencias, cota_min_reward, cota_max_reward, num_acciones=5):
+def construir_recompensas(adyacencias, cota_min_reward=-10, cota_max_reward=10, num_acciones=5):
     R = {}
     
     # Iteramos solo sobre las posiciones válidas del Gridworld
@@ -36,7 +36,7 @@ def construir_recompensas(adyacencias, cota_min_reward, cota_max_reward, num_acc
                 # Asignamos una recompensa simulada entre -10 y 10
                 R[(s, a, s_prime)] = random.uniform(cota_min_reward, cota_max_reward)
                 
-    return R
+    return R, cota_min_reward, cota_max_reward
 
 import random
 
