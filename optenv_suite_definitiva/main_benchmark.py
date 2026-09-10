@@ -3,9 +3,14 @@ import time
 import csv
 import os
 from mdp_generator import construir_adyacencias, construir_recompensas, construir_politica, elegir_gamma
-from solver_scip import construir_inecuaciones_scip
 from transition_finder import encontrar_transicion
 from policy_checker import verificar_politica_optima
+
+try:
+    from solver_scip import construir_inecuaciones_scip
+    SCIP_DISPONIBLE = True
+except ImportError:
+    SCIP_DISPONIBLE = False
 
 try:
     from solver_gurobi import construir_inecuaciones_gurobi
@@ -24,14 +29,14 @@ def correr_flujo_completo(N, solver_name, writer, archivo_csv):
     print("[1] Creando MDP (Adyacencias y Recompensas)...")
     adyacencias = construir_adyacencias(N)
     R, r_min, r_max = construir_recompensas(adyacencias)
-    pi = construir_politica(N, tipo="objetivo")
+    pi = construir_politica(N, tipo="random")
     
     limite_min = r_min / (1.0 - gamma)
     limite_max = r_max / (1.0 - gamma)
     
     print(f"[2] Resolviendo inecuaciones Opt-Env con {solver_name.upper()}...")
     inicio = time.time()
-    if solver_name == 'gurobi' and GUROBI_DISPONIBLE:
+    if solver_name == 'gurobi':
         modelo, dict_V = construir_inecuaciones_gurobi(adyacencias, R, pi, num_acciones, gamma, limite_min, limite_max)
     else:
         modelo, dict_V = construir_inecuaciones_scip(adyacencias, R, pi, num_acciones, gamma, limite_min, limite_max)
@@ -40,11 +45,7 @@ def correr_flujo_completo(N, solver_name, writer, archivo_csv):
     tiempo_v = time.time() - inicio
     
     V_optimos = {}
-    vars_totales = 0
-    vars_binarias = 0
-    
-    # Extracción de estadísticas según el motor
-    if solver_name == 'gurobi' and GUROBI_DISPONIBLE:
+    if solver_name == 'gurobi':
         status_v = "OPTIMAL" if modelo.Status == 2 else "INFEASIBLE"
         vars_totales = modelo.NumVars
         vars_binarias = modelo.NumBinVars
@@ -65,10 +66,10 @@ def correr_flujo_completo(N, solver_name, writer, archivo_csv):
         
     print(f"    -> V(s) factibles encontrados en {tiempo_v:.2f}s")
     
-    print("[3] Calculando P(s'|s,a) inversa (LP) a partir de V(s)...")
+    print(f"[3] Calculando P(s'|s,a) inversa (LP) a partir de V(s)...")
     inicio = time.time()
     try:
-        P_valida = encontrar_transicion(adyacencias, R, V_optimos, pi, num_acciones, gamma)
+        P_valida = encontrar_transicion(adyacencias, R, V_optimos, pi, num_acciones, gamma, solver_name=solver_name)
         tiempo_p = time.time() - inicio
         status_p = "OPTIMAL"
         print(f"    -> P(s'|s,a) encontrada en {tiempo_p:.2f}s")
@@ -83,7 +84,6 @@ def correr_flujo_completo(N, solver_name, writer, archivo_csv):
     resultado_final = "EXITOSO" if es_optima else "FALLO"
     print(f"    -> Resultado: {resultado_final}")
 
-    # Guardar fila de éxito en el CSV
     writer.writerow([
         N, solver_name.upper(), round(gamma, 4), vars_totales, vars_binarias, 
         round(tiempo_v, 2), status_v, round(tiempo_p, 2), status_p, resultado_final
@@ -95,23 +95,30 @@ if __name__ == "__main__":
     grupo = parser.add_mutually_exclusive_group(required=True)
     grupo.add_argument('--rango', type=int, nargs=2, metavar=('INICIO', 'FIN'))
     grupo.add_argument('--solo', type=int, metavar='N')
-    parser.add_argument('--solver', type=str, choices=['scip', 'gurobi'], default='scip')
+    # Nuevo argumento para aceptar listas personalizadas separadas por espacio
+    grupo.add_argument('--lista', type=int, nargs='+', metavar='N', help='Lista de tamaños específicos')
+    parser.add_argument('--solver', type=str, choices=['scip', 'gurobi'], default='gurobi')
     
     args = parser.parse_args()
     
     if args.solver == 'gurobi' and not GUROBI_DISPONIBLE:
-        print("Gurobi no instalado localmente. Forzando a SCIP.")
-        args.solver = 'scip'
+        raise RuntimeError("Gurobi no esta instalado en este entorno virtual.")
+    if args.solver == 'scip' and not SCIP_DISPONIBLE:
+        raise RuntimeError("PySCIPOpt no esta instalado en este entorno virtual.")
         
-    tamanos = list(range(args.rango[0], args.rango[1] + 1, 5)) if args.rango else [args.solo]
+    # Lógica de ruteo de tamaños
+    if args.rango:
+        tamanos = list(range(args.rango[0], args.rango[1] + 1, 5))
+    elif args.lista:
+        tamanos = args.lista
+    else:
+        tamanos = [args.solo]
     
-    nombre_archivo = "estadisticas_optenv.csv"
+    nombre_archivo = "estadisticas_optenv_pi_random.csv"
     archivo_existe = os.path.isfile(nombre_archivo)
     
     with open(nombre_archivo, mode="a", newline="") as archivo_csv:
         writer = csv.writer(archivo_csv)
-        
-        # Encabezados del CSV
         if not archivo_existe:
             writer.writerow([
                 "N", "Solver", "Gamma", "Variables_Totales", "Variables_Binarias", 
