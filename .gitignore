@@ -1,7 +1,3 @@
 # Entorno virtual
 .venv/
-<<<<<<< HEAD
 gurobi.log
-=======
-*.csv
->>>>>>> a4fc8ced3075905993230bf4960cc61028e89886
